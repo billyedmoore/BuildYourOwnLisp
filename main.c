@@ -104,6 +104,7 @@ lval* builtin_eval(lenv* env,lval* a);
 lval* builtin_list(lenv* env,lval* a);
 lval* builtin_neq(lenv* env, lval* a);
 lval* builtin_eq(lenv* env,lval* a);
+lval* builtin_if(lenv* env, lval* a);
 
 lval* builtin_var(lenv* env, lval* a,char* func);
 lval* builtin_def(lenv* env, lval* a);
@@ -135,6 +136,11 @@ lenv* lenv_new(void){
 };
 
 void lenv_del(lenv* e){
+	/**
+	 * Deletes an lenv.
+	 *
+	 * lenv* e: the lenv to delete.
+	 */
 	for(int i = 0; i< e->count; i++){
 		free(e->syms[i]);
 		lval_del(e->vals[i]);
@@ -166,6 +172,12 @@ lenv* lenv_copy(lenv* env){
 }
 
 lval* lenv_get(lenv* env, lval* key){
+	/**
+	 * Get the value bound to a key in an given enviroment.
+	 *
+	 * lenv* env: The enviroment where to look for the value.
+	 * lval* key: An lval* of type LVAL_SYM.
+	 */
 	for(int i = 0; i < env->count; i++){
 		if(strcmp(env->syms[i],key->sym) == 0){
 			return lval_copy(env->vals[i]);
@@ -259,7 +271,9 @@ void lenv_add_builtins(lenv* env){
 	lenv_add_builtin(env,">=", builtin_ge);
 	lenv_add_builtin(env,"<", builtin_lt);
 	lenv_add_builtin(env,"<=", builtin_le);
-
+	
+	
+	lenv_add_builtin(env, "if", builtin_if);
 	lenv_add_builtin(env, "\\", builtin_lambda);
 }
 
@@ -652,6 +666,44 @@ int lval_eq(lval* x, lval* y){
 	return 0;
 }
 
+lval* builtin_if(lenv* env, lval* a){
+	/**
+	 * A bulitin if function. Works like the terniary operator in c.
+	 *
+	 * Example usage: 
+	 *  if (a == b) {def {a} 1} {def {a} 2}
+	 *
+	 * lenv* env: The enviroment where to 
+	 * lval* a: The arguments. Should be made up of LVAL_NUM, 
+	 * 					LVAL_QEXPR, LVAL_QEXPR. Where the LVAL_NUM 
+	 * 					represents a boolean value.
+	 */
+	
+	// Check for correct number of args.
+	LASSERT_NUM("if",a,3);
+	// Check for correct types
+	LASSERT_TYPE("if",a,0,LVAL_NUM);
+	LASSERT_TYPE("if",a,1,LVAL_QEXPR);
+	LASSERT_TYPE("if",a,2,LVAL_QEXPR);
+	
+	lval* x;
+	// Change the qexpr to sexpr so they can be executed.
+	a->cell[1]->type = LVAL_SEXPR;
+	a->cell[2]->type = LVAL_SEXPR;
+	
+	// execute cell[1]
+	if (a->cell[0]->num){
+		x = lval_eval(env,lval_pop(a,1));
+	}
+	// execute cell[2]
+	else{
+		x =lval_eval(env, lval_pop(a,2));
+	}
+
+	lval_del(a);
+	return x; 
+}
+
 lval* builtin_ord(lenv* env, lval* a, char* op){
 	LASSERT_NUM(op,a,2);
 	LASSERT_TYPE(op,a,0,LVAL_NUM);
@@ -695,6 +747,10 @@ lval* builtin_cmp(lenv* env, lval* a, char* op){
 	/**
 	 * Function to compare two arguments, used for 
 	 * builtin_eq and builtin_neq.
+	 *
+	 * lenv* env: The enviroment where to exectute.
+	 * lval* a: The arguments passed.
+	 * char* op: One of '>', '>=', '<' and '<='.
 	 */
 	LASSERT_NUM(op,a,2);
 	int r;
@@ -770,6 +826,15 @@ lval* builtin_lambda(lenv* e, lval* v){
 }
 
 lval* builtin_var(lenv* env, lval* a,char* func){
+	/**
+	 * Bind a list (q-expression) of symbols to the corresponding
+	 * arguments.
+	 *
+	 * lenv* env: The enviroment where to execute.
+	 * lval a: The arguemnts.
+	 * char* func: Either "=" or "def" determines which scope to define vars in 
+	 * 						 local or global respectively.
+	 */ 
 	// checks the first value is a q-expression
 	LASSERT_TYPE("def", a, 0, LVAL_QEXPR);
 	
@@ -777,6 +842,7 @@ lval* builtin_var(lenv* env, lval* a,char* func){
 	// list of symbols
 	lval* syms = a->cell[0]; 
 	
+	// Check all the elements are symbols.
 	for(int i=0; i < syms->count; i++){
 			LASSERT_TYPE("def", syms, i , LVAL_SYM);
 	}
