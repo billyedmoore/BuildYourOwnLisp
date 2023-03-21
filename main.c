@@ -114,6 +114,10 @@ lval* builtin_sub(lenv* env, lval* a);
 lval* builtin_add(lenv* env, lval* a);
 lval* builtin_div(lenv* env, lval* a);
 
+lval* builtin_ge(lenv* env,lval* a);
+lval* builtin_gt(lenv* env,lval* a);
+lval* builtin_le(lenv* env,lval* a);
+lval* builtin_lt(lenv* env,lval* a);
 
 lenv* lenv_new(void){
 	/**
@@ -250,6 +254,11 @@ void lenv_add_builtins(lenv* env){
 
 	lenv_add_builtin(env,"==", builtin_eq);
 	lenv_add_builtin(env,"!=", builtin_neq);
+
+	lenv_add_builtin(env,">", builtin_gt);
+	lenv_add_builtin(env,">=", builtin_ge);
+	lenv_add_builtin(env,"<", builtin_lt);
+	lenv_add_builtin(env,"<=", builtin_le);
 
 	lenv_add_builtin(env, "\\", builtin_lambda);
 }
@@ -641,6 +650,45 @@ int lval_eq(lval* x, lval* y){
 		break;
 	}
 	return 0;
+}
+
+lval* builtin_ord(lenv* env, lval* a, char* op){
+	LASSERT_NUM(op,a,2);
+	LASSERT_TYPE(op,a,0,LVAL_NUM);
+	LASSERT_TYPE(op,a,1,LVAL_NUM);
+	int r;
+
+	if (strcmp(op,">=") == 0){
+		r =  (a->cell[0]->num >= a->cell[1]->num);
+	}
+	if (strcmp(op,">") == 0){
+		r =  (a->cell[0]->num > a->cell[1]->num);
+	}
+	if (strcmp(op,"<=") == 0){
+		r = (a->cell[0]->num <= a->cell[1]->num);
+	}
+	if (strcmp(op,"<") == 0){
+		r = (a->cell[0]->num < a->cell[1]->num);
+	}
+	
+	lval_del(a);
+	return lval_num(r);
+}
+
+lval* builtin_ge(lenv* env,lval* a){
+	return builtin_ord(env,a,">=");
+}
+
+lval* builtin_gt(lenv* env,lval* a){
+	return builtin_ord(env,a,">");
+}
+
+lval* builtin_le(lenv* env,lval* a){
+	return builtin_ord(env,a,"<=");
+}
+
+lval* builtin_lt(lenv* env,lval* a){
+	return builtin_ord(env,a,"<");
 }
 
 lval* builtin_cmp(lenv* env, lval* a, char* op){
