@@ -102,6 +102,8 @@ lval* builtin_head(lenv* env,lval* a);
 lval* builtin_tail(lenv* env,lval* a);
 lval* builtin_eval(lenv* env,lval* a);
 lval* builtin_list(lenv* env,lval* a);
+lval* builtin_neq(lenv* env, lval* a);
+lval* builtin_eq(lenv* env,lval* a);
 
 lval* builtin_var(lenv* env, lval* a,char* func);
 lval* builtin_def(lenv* env, lval* a);
@@ -245,6 +247,9 @@ void lenv_add_builtins(lenv* env){
 	lenv_add_builtin(env,"-",builtin_sub);	
 	lenv_add_builtin(env,"*",builtin_mul);	
 	lenv_add_builtin(env,"/",builtin_div);	
+
+	lenv_add_builtin(env,"==", builtin_eq);
+	lenv_add_builtin(env,"!=", builtin_neq);
 
 	lenv_add_builtin(env, "\\", builtin_lambda);
 }
@@ -592,9 +597,88 @@ lval* lval_join(lval* x, lval* y){
 	return x;
 }
 
+int lval_eq(lval* x, lval* y){
+	/**
+	 * Compares two lval objects, returns 1 if they are equal
+	 * and 0 if not.
+	 *
+	 * lval* x Lval to compare.
+	 * lval* y Lval to compare.
+	 * Returns:
+	 * int Whether the lvals are equal.
+	 */
+
+	if(x->type != y->type){
+		return 0;
+	}
+
+	switch(x->type){
+	case LVAL_NUM:
+		return x->num == y->num;
+	case LVAL_SYM:
+		return (strcmp("x->sym","y->sym") == 0);
+	case LVAL_ERR:
+		return (strcmp("x->err","y->err") == 0);
+	case LVAL_SEXPR:
+	case LVAL_QEXPR:
+		if (x->count != y->count){
+			return 0;
+		}
+		for (int i=0; i < x->count; i++){
+			// If any pair of elements are not the same return false.
+			if (!lval_eq(x->cell[i],y->cell[i])){
+				return 0;
+			}
+		}
+		return 1;
+	case LVAL_FUN:
+		if (x->builtin || y->builtin){
+			return (x->builtin == y->builtin);}
+		else {
+			return (lval_eq(x->formals,y->formals) && 
+							lval_eq(x->body,y->body));
+		}
+		break;
+	}
+	return 0;
+}
+
+lval* builtin_cmp(lenv* env, lval* a, char* op){
+	/**
+	 * Function to compare two arguments, used for 
+	 * builtin_eq and builtin_neq.
+	 */
+	LASSERT_NUM(op,a,2);
+	int r;
+	lval* x= lval_pop(a,0);
+	lval* y= lval_pop(a,0);
+
+	if (strcmp(op,"==") == 0){
+		r = lval_eq(x,y);
+	}
+	if (strcmp(op,"!=") == 0){
+		r = !lval_eq(x,y);
+	}
+
+	lval_del(x);
+	lval_del(y);
+	lval_del(a);
+	
+	return lval_num(r);
+}
+
+lval* builtin_eq(lenv* env, lval* a){
+	return builtin_cmp(env,a,"==");
+}
+
+lval* builtin_neq(lenv* env, lval* a){
+	return builtin_cmp(env,a,"!=");
+}
+
 lval* builtin_def(lenv* env,lval* a){
 	/**
 	 */
+
 	return builtin_var(env,a,"def");
 }
 
