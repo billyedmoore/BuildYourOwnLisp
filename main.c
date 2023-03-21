@@ -509,18 +509,54 @@ lval* lval_call(lenv* env, lval* function, lval* args){
 		// Pop the next "formal".
 		lval* symbol = lval_pop(function->formals,0);
 	
+		// & means the function accepts a varible number of args.
+		if (strcmp(symbol->sym,"&")){
+	
+			if (function->formals->count != 0){
+				lval_del(args);
+				return lval_err("The '&' symbol not followed by exactly one symbol.");
+			}
+			
+			lval* next_symbol = lval_pop(function->formals, 0);
+			// The remaining args will still be in args;
+			lenv_put(function->env,next_symbol,builtin_list(env,args));
+			lval_del(args);
+			lval_del(next_symbol);
+		}
+	
 		// Pop the next argument.
 		lval* arg = lval_pop(args,0);
 
 		lenv_put(function->env,symbol,arg);
 			
-		// Delete the symbols
+		// Delete the symbols.
 		lval_del(symbol);
 		lval_del(arg);
 	}
 	
 	//Delete the args lval* as all args have been evaluated.
 	lval_del(args);
+	
+	// If there is no arguments left and there is '&' followed by a symbol.
+	if(function->formals->count > 0 && 
+		strcmp(function->formals->cell[0]->sym,"&") == 0){
+		
+		// If the & symbol is not followed by one symbol.
+		if (function->formals->count != 2){
+				lval_del(args);
+				return lval_err("The '&' symbol not followed by exactly one symbol.");
+			}
+		
+		// Delete the lval represeting '&'.
+		lval_del(lval_pop(function->formals,0));
+		
+		lval* sym = lval_pop(function->formals,0);
+		lval* value = lval_qexpr();
+		
+		lenv_put(function->env,sym,value);
+		lval_del(sym);
+		lval_del(sym);
+	}
 
 	if(function->formals->count == 0){
 		function->env->parent = env;
