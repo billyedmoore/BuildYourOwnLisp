@@ -132,6 +132,8 @@ lval *builtin_list(lenv *env, lval *a);
 lval *builtin_neq(lenv *env, lval *a);
 lval *builtin_eq(lenv *env, lval *a);
 lval *builtin_if(lenv *env, lval *a);
+lval *builtin_print(lenv *env, lval *args);
+lval *builtin_error(lenv *env, lval *args);
 
 lval *builtin_var(lenv *env, lval *a, char *func);
 lval *builtin_def(lenv *env, lval *a);
@@ -303,7 +305,9 @@ void lenv_add_builtins(lenv *env) {
   lenv_add_builtin(env, "if", builtin_if);
   lenv_add_builtin(env, "\\", builtin_lambda);
 
-  lenv_add_builtin(env, "load", builtin_load);
+  lenv_add_builtin(env, "print", builtin_print);
+  lenv_add_builtin(env, "error", builtin_error);
+  // lenv_add_builtin(env, "load", builtin_load);
 }
 
 // LVAL CONSTRUCTORS
@@ -736,6 +740,42 @@ int lval_eq(lval *x, lval *y) {
     break;
   }
   return 0;
+}
+
+lval *builtin_print(lenv *env, lval *args) {
+  /**
+   * Print a string to the terminal.:
+   *
+   * lenv* env: The eniroment, won't be used.
+   * lval* args: An lval containing all the things to print.
+   */
+
+  for (int i = 0; i < args->count; i++) {
+    lval_print(args->cell[i]);
+    putchar(' ');
+  }
+
+  putchar('\n');
+  lval_del(args);
+
+  return lval_sexpr();
+}
+
+lval *builtin_error(lenv *env, lval *args) {
+  /**
+   * Raise an error.
+   *
+   * lenv* env: The eniroment, won't be used.
+   * lval* args: An lval containing the error message.
+   */
+  LASSERT_NUM("error", args, 1);
+  LASSERT_TYPE("error", args, 0, LVAL_STR);
+
+  // Create an error with the given string.
+  lval *err = lval_err(args->cell[0]->str);
+
+  lval_del(args);
+  return err;
 }
 
 lval *builtin_load(lenv *env, lval *a) {
@@ -1326,10 +1366,8 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
       // Create a new lval containing only the passed str.
       lval *args = lval_add(lval_sexpr(), lval_str(argv[i]));
-
       // Try to run the passed thing as a library.
       lval *x = builtin_load(env, args);
-
       // If the result is an error print that.
       if (x->type == LVAL_ERR) {
         lval_println(x);
