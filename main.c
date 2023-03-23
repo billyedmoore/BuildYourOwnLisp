@@ -32,6 +32,15 @@
     LASSERT(a, a->count != 0, "The function %s was passed an empty expr.",     \
             func_name)                                                         \
   }
+mpc_parser_t *Number;
+mpc_parser_t *Symbol;
+mpc_parser_t *String;
+mpc_parser_t *Comment;
+mpc_parser_t *Sexpr;
+mpc_parser_t *Qexpr;
+mpc_parser_t *Expr;
+mpc_parser_t *Lispy;
+
 // Forward definition of lval and lenv
 struct lval;
 struct lenv;
@@ -103,6 +112,7 @@ lval *lval_err(char *m, ...);
 lval *lval_fun(lbuiltin func);
 lval *lval_sym(char *name);
 lval *lval_copy(lval *v);
+lval *lval_read(mpc_ast_t *t);
 lval *lval_add(lval *v, lval *x);
 lval *lval_take(lval *v, int i);
 lval *builtin_op(lenv *env, lval *a, char *op);
@@ -112,6 +122,7 @@ lval *lval_eval(lenv *env, lval *v);
 void lval_del(lval *v);
 lval *lval_eval_sexpr(lenv *env, lval *v);
 
+lval *builtin_load(lenv *env, lval *a);
 lval *builtin_lambda(lenv *e, lval *v);
 lval *builtin_join(lenv *env, lval *a);
 lval *builtin_head(lenv *env, lval *a);
@@ -291,6 +302,8 @@ void lenv_add_builtins(lenv *env) {
 
   lenv_add_builtin(env, "if", builtin_if);
   lenv_add_builtin(env, "\\", builtin_lambda);
+
+  lenv_add_builtin(env, "load", builtin_load);
 }
 
 // LVAL CONSTRUCTORS
@@ -725,6 +738,56 @@ int lval_eq(lval *x, lval *y) {
   return 0;
 }
 
+lval *builtin_load(lenv *env, lval *a) {
+  /**
+   * Load a "library" of code from a filename.
+   *
+   * lenv* env: The enviroment to use to evaluate the library.
+   * lval* a: An lval that should contain a single argument of type LVAL_STR
+   *          containing the filename.
+   * Returns:
+   *  lval* either an empty LVAL_SEXPR or an LVAL_ERR if an error occurs.
+   */
+
+  // Assert that has one arg of type LVAL_STR
+  LASSERT_NUM("load", a, 1);
+  LASSERT_TYPE("load", a, 0, LVAL_STR);
+
+  mpc_result_t r;
+  if (mpc_parse_contents(a->cell[0]->str, Lispy, &r)) {
+    lval *expr = lval_read(r.output);
+    mpc_ast_delete(r.output);
+
+    // While still expressions to eval.
+    while (expr->count) {
+      // Evaluate the fist expr.
+      lval *x = lval_eval(env, lval_pop(expr, 0));
+
+      if (x->type == LVAL_ERR) {
+        lval_println(x);
+      }
+      lval_del(x);
+    }
+
+    // Clean up
+    lval_del(expr);
+    lval_del(a);
+
+    // return an empty sexpr
+    return lval_sexpr();
+
+  } else {
+    char *err_msg = mpc_err_string(r.error);
+    mpc_err_delete(r.error);
+
+    lval *err = lval_err("Could not load library %s", err_msg);
+    free(err_msg);
+    lval_del(a);
+
+    return err;
+  }
+}
+
 lval *builtin_if(lenv *env, lval *a) {
   /**
    * A bulitin if function. Works like the terniary operator in c.
@@ -1114,6 +1177,9 @@ lval *lval_read(mpc_ast_t *t) {
     if (strcmp(t->children[i]->tag, "regex") == 0) {
       continue;
     }
+    if (strstr(t->children[i]->tag, "comment")) {
+      continue;
+    }
     x = lval_add(x, lval_read(t->children[i]));
   }
   return x;
@@ -1198,49 +1264,81 @@ lval *lval_eval_sexpr(lenv *env, lval *v) {
 }
 
 int main(int argc, char **argv) {
-  mpc_parser_t *Number = mpc_new("number");
-  mpc_parser_t *Symbol = mpc_new("symbol");
-  mpc_parser_t *String = mpc_new("string");
-  mpc_parser_t *Sexpr = mpc_new("sexpr");
-  mpc_parser_t *Qexpr = mpc_new("qexpr");
-  mpc_parser_t *Expr = mpc_new("expr");
-  mpc_parser_t *Lispy = mpc_new("lispy");
+  Number = mpc_new("number");
+  Symbol = mpc_new("symbol");
+  String = mpc_new("string");
+  Comment = mpc_new("comment");
+  Sexpr = mpc_new("sexpr");
+  Qexpr = mpc_new("qexpr");
+  Expr = mpc_new("expr");
+  Lispy = mpc_new("lispy");
 
   // Language definition
   mpca_lang(MPCA_LANG_DEFAULT, "\
 				number: /-?[0-9]+/;\
 				symbol: /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/;\
 				string: /\"(\\\\.|[^\"])*\"/ ;\
+        comment: /;[^\\r\\n]*/;\
 				sexpr: '(' <expr>* ')';\
 				qexpr: '{' <expr>* '}';\
-				expr: <number> | <symbol> | <sexpr> | <qexpr> | <string>;\
+				expr: <number> | <symbol> | <sexpr> | \
+              <qexpr> | <string> | <comment>;\
 				lispy: /^/ <expr>+ /$/;\
 			",
-            Number, Symbol, String, Sexpr, Qexpr, Expr, Lispy);
+            Number, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
 
-  puts("Lispy Version 0.0.0.1");
-  puts("Press Ctrl+C to Exit \n");
-
+  // Global enviroment.
   lenv *env = lenv_new();
+  // Bind builtin functions.
   lenv_add_builtins(env);
-  while (1) {
-    char *input = readline("lispy >");
-    add_history(input);
 
-    mpc_result_t r;
-    if (mpc_parse("<stdin>", input, Lispy, &r)) {
-      lval *x = lval_eval(env, lval_read(r.output));
-      lval_println(x);
-      lval_del(x);
-      mpc_ast_delete(r.output);
-    } else {
-      mpc_err_print(r.error);
-      mpc_err_delete(r.error);
+  // If nothing is passed run in interactive mode
+  if (argc == 1) {
+    puts("Lispy Version 0.0.0.1");
+    puts("Press Ctrl+C to Exit \n");
+
+    while (1) {
+      // Read and evaluate input.
+      char *input = readline("lispy >");
+      add_history(input);
+
+      mpc_result_t r;
+      if (mpc_parse("<stdin>", input, Lispy, &r)) {
+        lval *x = lval_eval(env, lval_read(r.output));
+
+        lval_println(x);
+        lval_del(x);
+
+        mpc_ast_delete(r.output);
+      } else {
+        mpc_err_print(r.error);
+        mpc_err_delete(r.error);
+      }
+
+      free(input);
     }
+  }
+  // If an additional string is passed to the command.
+  // Treats each one as a library to run.
+  // Acts like "python main.py"
+  if (argc >= 2) {
+    // For each arg
+    for (int i = 1; i < argc; i++) {
+      // Create a new lval containing only the passed str.
+      lval *args = lval_add(lval_sexpr(), lval_str(argv[i]));
 
-    free(input);
+      // Try to run the passed thing as a library.
+      lval *x = builtin_load(env, args);
+
+      // If the result is an error print that.
+      if (x->type == LVAL_ERR) {
+        lval_println(x);
+      }
+
+      lval_del(x);
+    }
   }
   lenv_del(env);
-  mpc_cleanup(6, Number, Symbol, String, Sexpr, Expr, Lispy);
+  mpc_cleanup(8, Number, Symbol, String, Comment, Sexpr, Qexpr, Expr, Lispy);
   return 0;
 }
